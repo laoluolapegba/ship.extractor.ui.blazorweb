@@ -72,5 +72,5 @@ This version assumes the tool is used by internal admins and does not require lo
 
 🏷️ License
 
-MIT License
+
 
