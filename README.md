@@ -1,59 +1,76 @@
-# SHIP FHIR Extractor & Mapper
+SHIP FHIR Mapper Web UI
 
-The **SHIP FHIR Extractor** is a domain-driven .NET tool for mapping and transforming EMR (Electronic Medical Record) data into HL7 FHIR-compliant JSON using dynamic field mapping, validation, and persistence logic. It’s part of the Lagos State Smart Health Information Platform (SHIP) and enables healthcare data integration at scale.
+This project is a Blazor Web UI component of the SHIP Extractor platform, used to map EMR database tables and fields to FHIR-compliant JSON structures.
 
----
+It empowers technical admins to create, manage, and export field mappings that define how EMR data is transformed into FHIR resource representations.
 
-## 🔧 Architecture
+✨ Key Features
 
-This solution follows clean, layered **Domain-Driven Design (DDD)** with the following core projects:
+🔽 Select FHIR Resource: Choose a resource type like Patient, Encounter, etc.
 
-- `Ship.Ses.Extractor.Domain` – Core domain models and logic
-- `Ship.Ses.Extractor.Application` – Service contracts and use cases
-- `Ship.Ses.Extractor.Infrastructure` – Persistence, transformation, MongoDB + EF Core access
-- `Ship.Ses.Extractor.Presentation.Api` – Web API for managing mappings and EMR integration
-- `Ship.Ses.Extractor.UI.BlazorWeb` – Admin UI for visual field mapping
-- `Ship.Ses.Extractor.Worker` – Background service for periodic extraction and persistence
+🔄 Live EMR Metadata: Connects to the configured EMR database and loads tables & columns.
 
----
+🧭 Drag & Drop Mapping:
 
-## ✨ Key Features
+Left panel: EMR tables and fields
 
-### 🧠 Blazor Web UI
-- Admin selects a **FHIR Resource Type** (e.g. `Patient`, `Encounter`) from a dropdown.
-- System connects to a configured EMR (MySQL, PostgreSQL, or MSSQL) and loads table/column metadata.
-- Admin visually maps:
-  - 🔹 Left Panel: EMR tables and fields  
-  - 🔸 Right Panel: FHIR JSONPath / FHIRPath-like structure
-- Mappings can be **saved**, **edited**, or **exported as JSON**.
+Right panel: FHIR structure (JSONPath/FHIRPath)
 
-### ⚙️ Mapping Engine
-- Dynamically converts SQL rows to FHIR resource JSON using field mappings
-- Supports **constants injection** (e.g. `relationship`, `identifier.type`, `managingOrganization`)
-- Validates generated JSON against a FHIR schema engine
-- Persists to MongoDB collection per resource type
-- Includes support for **retry** on transform/persist failure
+💾 Mapping Management:
 
-### 📦 Persistence & Pipeline Ready
-- Uses **Entity Framework Core** to persist EMR connection info and mapping metadata
-- MongoDB for storing FHIR records with custom retry, status, and sync tracking
-- Logging powered by **Serilog**, enriched with environment + correlation ID
+Create / Edit mappings
 
----
+Export mapping as JSON
 
-## 📘 API Capabilities
+Save to central API
 
-Hosted in `Ship.Ses.Extractor.Presentation.Api`
+🛠️ Project Structure
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/emr/tables` | List tables from selected EMR DB |
-| `GET /api/emr/tables/{name}` | Inspect columns in table |
-| `POST /api/emr/connections/select/{id}` | Select EMR data source |
-| `GET /api/mappings` | List saved mappings |
-| `GET /api/mappings/{id}` | View mapping |
-| `POST /api/mappings` | Create mapping |
-| `PUT /api/mappings/{id}` | Update mapping |
-| `DELETE /api/mappings/{id}` | Delete mapping |
+This Web UI runs as part of the Ship.Ses.Extractor.UI.BlazorWeb project in the SHIP Extractor solution.
 
-### ✅ Swagger is enabled at:
+It communicates with the backend API (Ship.Ses.Extractor.Presentation.Api) to fetch:
+
+Active EMR connections
+
+Table metadata
+
+Saved mapping definitions
+
+Supported FHIR resource types
+
+🔧 Configuration
+
+Set the base API endpoint in appsettings.json:
+
+{
+  "ApiBaseUrl": "https://localhost:7015/api/v1/"
+}
+
+🚀 Getting Started
+
+dotnet run --project Ship.Ses.Extractor.UI.BlazorWeb
+
+Then navigate to https://localhost:7016/ (or your configured port).
+
+Ensure the API project is also running to provide data.
+
+🧱 Supported Resource Types
+
+The UI supports mapping for FHIR resource types defined in the backend, such as:
+
+Patient
+
+Encounter
+
+Observation
+
+These can be extended in the backend.
+
+🔒 Authentication / Security
+
+This version assumes the tool is used by internal admins and does not require login. In future versions, integration with Azure AD or SHIP IAM can be supported.
+
+🏷️ License
+
+MIT License
+
