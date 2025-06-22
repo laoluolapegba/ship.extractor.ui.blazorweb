@@ -1,0 +1,215 @@
+﻿@page "/emr-connections"
+@inject EmrDatabaseService EmrDatabaseService
+@inject NavigationManager NavManager
+@inject LocalStorageService LocalStorageService
+@using Ship.Ses.Extractor.UI.BlazorWeb.Models.ApiClient
+@using Ship.Ses.Extractor.UI.BlazorWeb.Components.Common
+
+<PageTitle>EMR Connections</PageTitle>
+
+<h3>EMR Connections</h3>
+
+<p>Manage your connections to different EMR databases.</p>
+
+<div class="mb-3">
+    <a href="/emr-connections/create" class="btn btn-primary">
+        <i class="oi oi-plus"></i> Add New Connection
+    </a>
+</div>
+
+@if (isLoading)
+{
+    <Loading Message="Loading EMR connections..." />
+}
+else if (connections == null || !connections.Any())
+{
+    <Alert Type="info" Message="No EMR connections configured yet. Click 'Add New Connection' to get started." />
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Server</th>
+                    <th>Database</th>
+                    <th>Active</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var connection in connections)
+                {
+                    <tr class="@(connection.Id == selectedConnectionId ? "table-success" : "")">
+                        <td>@connection.Name</td>
+                        <td>@connection.DatabaseType.ToString()</td>
+                        <td>@connection.Server:@connection.Port</td>
+                        <td>@connection.DatabaseName</td>
+                        <td>
+                            @if (connection.IsActive)
+                            {
+                                <span class="badge bg-success">Active</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary">Inactive</span>
+                            }
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-info" @onclick="() => EditConnection(connection.Id)">
+                                <i class="oi oi-pencil"></i> Edit
+                            </button>
+                            <button class="btn btn-sm btn-danger ms-1" @onclick="() => ConfirmDelete(connection.Id)">
+                                <i class="oi oi-trash"></i> Delete
+                            </button>
+                            @if (connection.Id != selectedConnectionId)
+                            {
+                                <button class="btn btn-sm btn-success ms-1" @onclick="() => SelectConnection(connection.Id)">
+                                    <i class="oi oi-check"></i> Select
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-secondary ms-1" disabled>Selected</button>
+                            }
+                            <button class="btn btn-sm btn-secondary ms-1" @onclick="() => TestConnection(connection.Id)"
+                                    disabled="@(isTestingConnection && testConnectionId == connection.Id)">
+                                @if (isTestingConnection && testConnectionId == connection.Id)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                    <span>Testing...</span>
+                                }
+                                else
+                                {
+                                    <i class="oi oi-loop"></i>
+                                    <span>Test</span>
+                                }
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<Alert @ref="alertComponent" />
+<Confirmation @ref="confirmationComponent" />
+
+@code {
+    private List<EmrConnectionModel> connections;
+    private int? selectedConnectionId;
+    private bool isLoading = true;
+    private bool isTestingConnection = false;
+    private int? testConnectionId;
+
+    private Alert alertComponent;
+    private Confirmation confirmationComponent;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadConnections();
+    }
+
+    private async Task LoadConnections()
+    {
+        isLoading = true;
+        try
+        {
+            connections = await EmrDatabaseService.GetConnectionsAsync();
+            selectedConnectionId = await EmrDatabaseService.GetSelectedConnectionIdAsync(); // Get currently selected from local storage
+        }
+        catch (HttpRequestException ex)
+        {
+            alertComponent?.Show("Error loading connections: " + ex.Message, "danger");
+            connections = new List<EmrConnectionModel>(); // Initialize empty list to prevent null reference
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void EditConnection(int id)
+    {
+        NavManager.NavigateTo($"/emr-connections/edit/{id}");
+    }
+
+    private async Task ConfirmDelete(int id)
+    {
+        //bool confirmed = await confirmationComponent.Show("Delete Connection", "Are you sure you want to delete this EMR connection? This action cannot be undone.");
+        bool confirmed = await confirmationComponent.ShowAsync(); // No parameters needed for browser's confirm()
+
+        if (confirmed)
+        {
+            await DeleteConnection(id);
+        }
+    }
+
+    private async Task DeleteConnection(int id)
+    {
+        try
+        {
+            await EmrDatabaseService.DeleteConnectionAsync(id);
+            alertComponent?.Show("Connection deleted successfully!", "success");
+
+            // If the deleted connection was the selected one, clear selection
+            if (selectedConnectionId == id)
+            {
+                await EmrDatabaseService.ClearSelectedConnectionAsync();
+                selectedConnectionId = null;
+            }
+            await LoadConnections(); // Reload list
+        }
+        catch (HttpRequestException ex)
+        {
+            alertComponent?.Show("Error deleting connection: " + ex.Message, "danger");
+        }
+    }
+
+    private async Task SelectConnection(int id)
+    {
+        try
+        {
+            await EmrDatabaseService.SelectConnectionAsync(id);
+            selectedConnectionId = id; // Update local state
+            alertComponent?.Show($"Connection '{connections.FirstOrDefault(c => c.Id == id)?.Name}' selected successfully!", "success");
+            // Optionally, navigate somewhere or refresh relevant components
+        }
+        catch (Exception ex)
+        {
+            alertComponent?.Show("Error selecting connection: " + ex.Message, "danger");
+        }
+    }
+
+    private async Task TestConnection(int id)
+    {
+        isTestingConnection = true;
+        testConnectionId = id;
+        try
+        {
+            var success = await EmrDatabaseService.TestConnectionAsync(id);
+            if (success)
+            {
+                alertComponent?.Show($"Test successful for '{connections.FirstOrDefault(c => c.Id == id)?.Name}'!", "success");
+            }
+            else
+            {
+                alertComponent?.Show($"Test failed for '{connections.FirstOrDefault(c => c.Id == id)?.Name}'. Check connection details.", "danger");
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            // The TestConnectionAsync method already handles HTTP exceptions and returns false.
+            // This catch block is for unexpected errors.
+            alertComponent?.Show($"An unexpected error occurred during test: {ex.Message}", "danger");
+        }
+        finally
+        {
+            isTestingConnection = false;
+            testConnectionId = null;
+        }
+    }
+}

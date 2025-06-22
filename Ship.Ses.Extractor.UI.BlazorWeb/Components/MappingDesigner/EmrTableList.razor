@@ -95,7 +95,7 @@
         _tableLoading = true;
         try
         {
-            _tables = await EmrDatabaseService.GetTablesAsync();
+            _tables = await EmrDatabaseService.GetEmrTablesAsync();
         }
         catch (Exception ex)
         {

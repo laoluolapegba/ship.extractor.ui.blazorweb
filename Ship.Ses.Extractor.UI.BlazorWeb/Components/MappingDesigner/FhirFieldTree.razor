@@ -55,12 +55,12 @@
         _fhirLoading = true;
         try
         {
-            var structure = await FhirResourceService.GetResourceStructureAsync(ResourceTypeId);
-            _fields = ParseFhirStructure(structure);
+            // Now expecting a JsonDocument
+            var jsonDocument = await FhirResourceService.GetResourceStructureAsync(ResourceTypeId);
+            _fields = ParseFhirStructure(jsonDocument); // Pass JsonDocument directly
         }
         catch (Exception ex)
         {
-            // Handle error
             Console.Error.WriteLine($"Error loading FHIR fields: {ex.Message}");
         }
         finally
@@ -230,12 +230,12 @@
     }
 
     // This is a simplified version - in a real app you would parse the JSON structure more carefully
-    private List<FhirFieldModel> ParseFhirStructure(string structure)
+    private List<FhirFieldModel> ParseFhirStructure(JsonDocument jsonDoc)
     {
         try
         {
             var fields = new List<FhirFieldModel>();
-            var jsonDoc = System.Text.Json.JsonDocument.Parse(structure);
+            // var jsonDoc = System.Text.Json.JsonDocument.Parse(structure); // No longer needed
             var root = jsonDoc.RootElement;
 
             foreach (var property in root.EnumerateObject())

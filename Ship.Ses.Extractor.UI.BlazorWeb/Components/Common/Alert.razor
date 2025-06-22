@@ -1,23 +1,28 @@
-﻿<div class="alert alert-@Type alert-dismissible fade show" role="alert">
-    @if (!string.IsNullOrEmpty(Title))
-    {
-        <h5 class="alert-heading">@Title</h5>
-    }
+﻿@* Ship.Ses.Extractor.UI/Components/Common/Alert.razor *@
 
-    @if (ChildContent != null)
-    {
-        @ChildContent
-    }
-    else
-    {
-        @Message
-    }
+@if (IsVisible) // Only render if IsVisible is true
+{
+    <div class="alert alert-@Type alert-dismissible fade show" role="alert">
+        @if (!string.IsNullOrEmpty(Title))
+        {
+            <h5 class="alert-heading">@Title</h5>
+        }
 
-    @if (Dismissible)
-    {
-        <button type="button" class="btn-close" @onclick="OnDismiss" aria-label="Close"></button>
-    }
-</div>
+        @if (ChildContent != null)
+        {
+            @ChildContent
+        }
+        else
+        {
+            @Message
+        }
+
+        @if (Dismissible)
+        {
+            <button type="button" class="btn-close" @onclick="HandleDismiss" aria-label="Close"></button>
+        }
+    </div>
+}
 
 @code {
     [Parameter]
@@ -32,9 +37,50 @@
     [Parameter]
     public bool Dismissible { get; set; } = true;
 
+    // We'll manage the dismissal internally, but still expose the OnDismiss callback
     [Parameter]
     public EventCallback OnDismiss { get; set; }
 
     [Parameter]
     public RenderFragment ChildContent { get; set; }
+
+    // New parameter to control visibility from parent components
+    public bool IsVisible { get; set; } = false;
+
+    // Public method to show the alert
+    public void Show(string message, string type = "info", string title = null, bool dismissible = true)
+    {
+        Message = message;
+        Type = type;
+        Title = title; // Set title if provided
+        Dismissible = dismissible; // Set dismissible if provided
+        IsVisible = true;
+        StateHasChanged(); // Notify Blazor to re-render
+    }
+
+    // Public method to hide the alert
+    public void Hide()
+    {
+        IsVisible = false;
+        // Optionally clear message/title when hidden to prevent stale data
+        Message = string.Empty;
+        Title = string.Empty;
+        StateHasChanged(); // Notify Blazor to re-render
+    }
+
+    // Internal handler for the dismiss button
+    private async Task HandleDismiss()
+    {
+        IsVisible = false;
+        // Optionally clear message/title when hidden
+        Message = string.Empty;
+        Title = string.Empty;
+        StateHasChanged(); // Re-render to hide the alert
+
+        // Invoke the original OnDismiss callback if it's set
+        if (OnDismiss.HasDelegate)
+        {
+            await OnDismiss.InvokeAsync(null);
+        }
+    }
 }

@@ -25,7 +25,8 @@
                 <div class="card-body">
                     <h5 class="card-title">Getting Started</h5>
                     <p class="card-text">Learn how to create and manage your EMR to FHIR mappings.</p>
-                    <button class="btn btn-outline-primary">View Guide</button>
+                    @* Assuming "guide" is a simple static page like /guide *@
+                    <a href="/guide" class="btn btn-outline-primary">View Guide</a>
                 </div>
             </div>
         </div>
@@ -34,7 +35,8 @@
                 <div class="card-body">
                     <h5 class="card-title">FHIR Resources</h5>
                     <p class="card-text">Explore available FHIR resources and their structure.</p>
-                    <button class="btn btn-outline-primary">View Resources</button>
+                    @* This can link to the Mappings page or a dedicated FHIR resources page if you create one later *@
+                    <a href="/mappings" class="btn btn-outline-primary">View Resources</a>
                 </div>
             </div>
         </div>
@@ -43,7 +45,8 @@
                 <div class="card-body">
                     <h5 class="card-title">EMR Connection</h5>
                     <p class="card-text">Configure connection to your EMR database system.</p>
-                    <button class="btn btn-outline-primary">Configure</button>
+                    @* Link to the new EMR Connections page *@
+                    <a href="/emr-connections" class="btn btn-outline-primary">Configure</a>
                 </div>
             </div>
         </div>

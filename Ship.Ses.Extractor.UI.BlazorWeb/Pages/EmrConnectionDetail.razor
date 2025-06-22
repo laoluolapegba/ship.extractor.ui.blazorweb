@@ -1,0 +1,190 @@
+﻿@page "/emr-connections/create"
+@page "/emr-connections/edit/{ConnectionId:int}"
+@inject EmrDatabaseService EmrDatabaseService
+@inject NavigationManager NavManager
+@using Ship.Ses.Extractor.UI.BlazorWeb.Models.ApiClient
+@using Ship.Ses.Extractor.UI.BlazorWeb.Components.Common 
+
+<PageTitle>@(ConnectionId.HasValue ? "Edit EMR Connection" : "Create New EMR Connection")</PageTitle>
+
+<h3>@(ConnectionId.HasValue ? "Edit EMR Connection" : "Create New EMR Connection")</h3>
+
+@if (isLoading)
+{
+    <Loading Message="Loading connection details..." />
+}
+else
+{
+    <EditForm Model="@connection" OnValidSubmit="HandleValidSubmit">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="mb-3">
+            <label for="name" class="form-label">Name</label>
+            <InputText id="name" class="form-control" @bind-Value="connection.Name" />
+            <ValidationMessage For="@(() => connection.Name)" />
+        </div>
+
+        <div class="mb-3">
+            <label for="description" class="form-label">Description</label>
+            <InputTextArea id="description" class="form-control" @bind-Value="connection.Description" rows="3" />
+            <ValidationMessage For="@(() => connection.Description)" />
+        </div>
+
+        <div class="mb-3">
+            <label for="databaseType" class="form-label">Database Type</label>
+            <InputSelect id="databaseType" class="form-select" @bind-Value="connection.DatabaseType">
+                @foreach (var type in Enum.GetValues<DatabaseType>())
+                {
+                    <option value="@type">@type.ToString()</option>
+                }
+            </InputSelect>
+            <ValidationMessage For="@(() => connection.DatabaseType)" />
+        </div>
+
+        <div class="row">
+            <div class="col-md-8 mb-3">
+                <label for="server" class="form-label">Server Address</label>
+                <InputText id="server" class="form-control" @bind-Value="connection.Server" />
+                <ValidationMessage For="@(() => connection.Server)" />
+            </div>
+            <div class="col-md-4 mb-3">
+                <label for="port" class="form-label">Port</label>
+                <InputNumber id="port" class="form-control" @bind-Value="connection.Port" />
+                <ValidationMessage For="@(() => connection.Port)" />
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label for="databaseName" class="form-label">Database Name</label>
+            <InputText id="databaseName" class="form-control" @bind-Value="connection.DatabaseName" />
+            <ValidationMessage For="@(() => connection.DatabaseName)" />
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label for="username" class="form-label">Username</label>
+                <InputText id="username" class="form-control" @bind-Value="connection.Username" />
+                <ValidationMessage For="@(() => connection.Username)" />
+            </div>
+            <div class="col-md-6 mb-3">
+                <label for="password" class="form-label">Password</label>
+                <InputText id="password" class="form-control" type="password" @bind-Value="connection.Password" />
+                <ValidationMessage For="@(() => connection.Password)" />
+                <small class="form-text text-muted">Leave blank if you don't want to change the password.</small>
+            </div>
+        </div>
+
+        <div class="form-check mb-3">
+            <InputCheckbox id="isActive" class="form-check-input" @bind-Value="connection.IsActive" />
+            <label class="form-check-label" for="isActive">Is Active</label>
+        </div>
+
+        <button type="submit" class="btn btn-success" disabled="@isSaving">
+            @if (isSaving)
+            {
+                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            }
+            @(ConnectionId.HasValue ? "Save Changes" : "Create Connection")
+        </button>
+        <a href="/emr-connections" class="btn btn-secondary ms-2">Cancel</a>
+    </EditForm>
+}
+
+<Alert @ref="alertComponent" />
+
+@code {
+    [Parameter]
+    public int? ConnectionId { get; set; } // Will be null for 'create', ID for 'edit'
+
+    private EmrConnectionModel connection = new EmrConnectionModel();
+    private bool isLoading = true;
+    private bool isSaving = false;
+
+    private Alert alertComponent;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (ConnectionId.HasValue)
+        {
+            await LoadConnectionForEdit(ConnectionId.Value);
+        }
+        else
+        {
+            // Set default values for new connection if needed
+            connection.DatabaseType = DatabaseType.MySql;
+            connection.Port = 3306; // Default MySQL port
+            connection.IsActive = true;
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadConnectionForEdit(int id)
+    {
+        isLoading = true;
+        try
+        {
+            connection = await EmrDatabaseService.GetConnectionByIdAsync(id);
+            if (connection == null)
+            {
+                alertComponent?.Show("Connection not found.", "danger");
+                NavManager.NavigateTo("/emr-connections"); // Redirect if not found
+            }
+            // Important: Don't load password for editing.
+            // The API DTO intentionally omits password on GET.
+            // If the user leaves the password field blank on edit,
+            // the API's Update method should handle not updating the password.
+            connection.Password = string.Empty;
+        }
+        catch (HttpRequestException ex)
+        {
+            alertComponent?.Show("Error loading connection details: " + ex.Message, "danger");
+            NavManager.NavigateTo("/emr-connections");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        isSaving = true;
+        try
+        {
+            if (ConnectionId.HasValue)
+            {
+                // Update existing connection
+                await EmrDatabaseService.UpdateConnectionAsync(connection);
+                alertComponent?.Show("Connection updated successfully!", "success");
+            }
+            else
+            {
+                // Create new connection
+                var newId = await EmrDatabaseService.CreateConnectionAsync(connection);
+                alertComponent?.Show("Connection created successfully!", "success");
+                NavManager.NavigateTo($"/emr-connections/edit/{newId}"); // Navigate to edit page for newly created
+            }
+            await Task.Delay(1000); // Give user time to see success message
+            NavManager.NavigateTo("/emr-connections"); // Go back to list
+        }
+        catch (HttpRequestException ex)
+        {
+            // Extract a more user-friendly message if possible
+            string errorMessage = "An error occurred. Please check your input.";
+            if (ex.StatusCode.HasValue)
+            {
+                errorMessage = $"Error ({ex.StatusCode.Value}): {ex.Message}";
+            }
+            alertComponent?.Show(errorMessage, "danger");
+        }
+        catch (Exception ex)
+        {
+            alertComponent?.Show("An unexpected error occurred: " + ex.Message, "danger");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

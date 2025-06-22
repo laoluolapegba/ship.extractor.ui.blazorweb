@@ -13,7 +13,7 @@ namespace Ship.Ses.Extractor.UI.BlazorWeb.Services
         {
             _apiClient = apiClient;
         }
-
+        
         public async Task<List<MappingModel>> GetMappingsAsync()
         {
             return await _apiClient.GetAsync<List<MappingModel>>("mappings"); 
