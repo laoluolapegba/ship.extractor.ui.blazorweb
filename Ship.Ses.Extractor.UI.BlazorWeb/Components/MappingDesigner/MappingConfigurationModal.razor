@@ -1,0 +1,637 @@
+﻿@using Ship.Ses.Extractor.UI.BlazorWeb.Models.UI
+@using Ship.Ses.Extractor.UI.BlazorWeb.Components.Common 
+@using System.Text.Json.Serialization
+@inject IJSRuntime JSRuntime
+
+<style>
+    /* Basic Modal Overlay and positioning */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(0, 0, 0, 0.6); /* Slightly darker overlay */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1060; /* Higher than Bootstrap's modal-backdrop (1050) */
+    }
+
+    .modal-content-custom {
+        background: var(--bs-body-bg);
+        border-radius: var(--bs-border-radius);
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        padding: 1.5rem;
+        width: 90%;
+        max-width: 900px; /* Increased max-width for more content */
+        max-height: 90vh;
+        overflow-y: auto;
+        animation: fadeIn 0.3s ease-out;
+    }
+
+    @@keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Styles for dynamic sections */
+    .dynamic-section-header {
+        background-color: var(--bs-light);
+        padding: 0.5rem 1rem;
+        border-radius: var(--bs-border-radius);
+        margin-bottom: 1rem;
+        font-weight: bold;
+        color: var(--bs-secondary-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .dictionary-table th, .dictionary-table td {
+        vertical-align: middle;
+        padding: 0.5rem;
+    }
+    .dictionary-table input {
+        width: 100%;
+        min-width: 80px; /* Prevent shrinking too much */
+    }
+    .dictionary-table button {
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+    }
+</style>
+
+@if (_isVisible)
+{
+    <div class="modal-overlay" @onclick="HandleOverlayClick">
+        <div class="modal-content-custom" @onclick:stopPropagation="true">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4 class="mb-0">Configure Mapping</h4>
+                <button type="button" class="btn-close" @onclick="Cancel"></button>
+            </div>
+
+            <Alert @ref="alertComponent" />
+
+            @if (_mappingToConfigure != null)
+            {
+                <EditForm Model="_mappingToConfigure" OnValidSubmit="Save">
+                    <DataAnnotationsValidator/>
+                    <ValidationSummary />
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">FHIR Path:</label>
+                                <p class="form-control-plaintext text-break">@_mappingToConfigure.FhirPath</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Inferred FHIR Template:</label>
+                                <p class="form-control-plaintext">@(string.IsNullOrEmpty(_mappingToConfigure.Template) ? "None" : _mappingToConfigure.Template)</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                             <div class="mb-3">
+                                <label class="form-label">Primary EMR Field (Optional):</label>
+                                <InputText @bind-Value="_mappingToConfigure.EmrField" class="form-control" placeholder="e.g., patient_id" />
+                                <small class="form-text text-muted">For simple 1:1 mappings. Used if no complex map defined.</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Desired Data Type:</label>
+                                <InputText @bind-Value="_mappingToConfigure.DataType" class="form-control" placeholder="e.g., string, boolean, date" />
+                                <small class="form-text text-muted">FHIR data type (e.g., string, boolean, date, number).</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3 form-check">
+                                <InputCheckbox @bind-Value="_mappingToConfigure.Required" class="form-check-input" id="isRequired" />
+                                <label class="form-check-label" for="isRequired">Is Required (FHIR)</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Format (Optional):</label>
+                                <InputText @bind-Value="_mappingToConfigure.Format" class="form-control" placeholder="e.g., yyyy-MM-dd" />
+                                <small class="form-text text-muted">Format string for dates/numbers.</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Explicit Template (Optional):</label>
+                        <InputSelect @bind-Value="_mappingToConfigure.Template" class="form-select">
+                            <option value="">-- Auto-inferred or None --</option>
+                            <option value="HumanName">HumanName</option>
+                            <option value="ContactPoint">ContactPoint</option>
+                            <option value="Address">Address</option>
+                            <option value="Identifier">Identifier</option>
+                            <option value="CodeableConcept">CodeableConcept</option>
+                            <option value="Reference">Reference</option>
+                            <option value="Contact">Contact</option> @* For Patient.contact array *@
+                            @* Add other common FHIR complex types as needed *@
+                        </InputSelect>
+                        <small class="form-text text-muted">Override or explicitly set FHIR structure template.</small>
+                    </div>
+
+                    @* --- Dynamic Sections Based on Template --- *@
+
+                    @if (_mappingToConfigure.Template == "HumanName" || _mappingToConfigure.Template == "ContactPoint" || _mappingToConfigure.Template == "Address" || _mappingToConfigure.Template == "Contact")
+                    {
+                        <div class="dynamic-section-header">
+                            <span>EMR Field Map (for @(_mappingToConfigure.Template))</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => AddEmrFieldMapEntry()">
+                                <i class="oi oi-plus"></i>
+                            </button>
+                        </div>
+                        <p class="text-muted small">Map FHIR sub-fields to EMR columns.</p>
+                        <table class="table table-bordered dictionary-table mb-3">
+                            <thead>
+                                <tr>
+                                    <th style="width: 45%;">FHIR Sub-Path</th>
+                                    <th style="width: 45%;">EMR Column</th>
+                                    <th style="width: 10%;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in _emrFieldMapEntries) @* Bind to mutable list *@
+                                {
+                                    <tr>
+                                        <td><InputText class="form-control" @bind-Value="entry.Key" /></td>
+                                        <td><InputText class="form-control" @bind-Value="entry.Value" /></td>
+                                        <td>
+                                            <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveEmrFieldMapEntry(entry.Key)">
+                                                <i class="oi oi-x"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (!_emrFieldMapEntries.Any()) @* Check mutable list *@
+                                {
+                                    <tr><td colspan="3" class="text-center text-muted">No sub-field mappings.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                        <div class="mb-3">
+                            <label class="form-label">Defaults (JSON Object):</label>
+                            <InputTextArea @bind-Value="DefaultJsonInput" class="form-control" rows="5" placeholder="{ &quot;use&quot;: &quot;official&quot;, &quot;system&quot;: &quot;phone&quot; }"></InputTextArea>
+                            <small class="form-text text-muted">Enter a valid JSON object for default values. e.g. `{ "use": "official" }`</small>
+                            @if (!string.IsNullOrEmpty(DefaultJsonError))
+                            {
+                                <div class="text-danger small">Error: @DefaultJsonError</div>
+                            }
+                        </div>
+                    }
+
+                    @if (_mappingToConfigure.Template == "CodeableConcept")
+                    {
+                        <div class="dynamic-section-header">
+                            <span>Value Set Mapping</span>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">System URL:</label>
+                            <InputText @bind-Value="_mappingToConfigure.ValueSet.System" class="form-control" placeholder="http://terminology.hl7.org/CodeSystem/v3-MaritalStatus" />
+                        </div>
+                        <div class="dynamic-section-header">
+                            <span>Display Map (EMR Value to FHIR Display)</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => AddDisplayMapEntry()">
+                                <i class="oi oi-plus"></i>
+                            </button>
+                        </div>
+                        <table class="table table-bordered dictionary-table mb-3">
+                            <thead>
+                                <tr>
+                                    <th style="width: 45%;">EMR Value</th>
+                                    <th style="width: 45%;">FHIR Display</th>
+                                    <th style="width: 10%;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in _displayMapEntries) @* Bind to mutable list *@
+                                {
+                                    <tr>
+                                        <td><InputText class="form-control" @bind-Value="entry.Key" /></td>
+                                        <td><InputText class="form-control" @bind-Value="entry.Value" /></td>
+                                        <td>
+                                            <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveDisplayMapEntry(entry.Key)">
+                                                <i class="oi oi-x"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (!_displayMapEntries.Any()) @* Check mutable list *@
+                                {
+                                    <tr><td colspan="3" class="text-center text-muted">No display mappings.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+
+                    @if (_mappingToConfigure.Template == "Identifier")
+                    {
+                        <div class="dynamic-section-header">
+                            <span>EMR Field Priority (Ordered List of EMR Fields)</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => AddEmrFieldPriorityEntry()">
+                                <i class="oi oi-plus"></i>
+                            </button>
+                        </div>
+                        <p class="text-muted small">Prioritized list of EMR columns to check for identifier value.</p>
+                        <table class="table table-bordered dictionary-table mb-3">
+                            <thead>
+                                <tr>
+                                    <th style="width: 45%;">Key (e.g., 'national_id')</th>
+                                    <th style="width: 45%;">EMR Column Name</th>
+                                    <th style="width: 10%;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in _emrFieldPriorityEntries) @* Bind to mutable list *@
+                                {
+                                    <tr>
+                                        <td><InputText class="form-control" @bind-Value="entry.Key" /></td>
+                                        <td><InputText class="form-control" @bind-Value="entry.Value" /></td>
+                                        <td>
+                                            <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveEmrFieldPriorityEntry(entry.Key)">
+                                                <i class="oi oi-x"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (!_emrFieldPriorityEntries.Any()) @* Check mutable list *@
+                                {
+                                    <tr><td colspan="3" class="text-center text-muted">No priority fields.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+
+                        <div class="dynamic-section-header">
+                            <span>Identifier Type Map</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => AddIdentifierTypeMapEntry()">
+                                <i class="oi oi-plus"></i>
+                            </button>
+                        </div>
+                        <p class="text-muted small">Map EMR field keys to FHIR Identifier Type concepts.</p>
+                        <table class="table table-bordered dictionary-table mb-3">
+                            <thead>
+                                <tr>
+                                    <th style="width: 25%;">EMR Key (from Priority List)</th>
+                                    <th style="width: 20%;">Code</th>
+                                    <th style="width: 20%;">Display</th>
+                                    <th style="width: 25%;">System</th>
+                                    <th style="width: 10%;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in _identifierTypeMapEntries) @* Bind to mutable list *@
+                                {
+                                    <tr>
+                                        <td><InputText class="form-control" @bind-Value="entry.Key" /></td>
+                                        <td><InputText class="form-control" @bind-Value="entry.Value.Code" /></td>
+                                        <td><InputText class="form-control" @bind-Value="entry.Value.Display" /></td>
+                                        <td><InputText class="form-control" @bind-Value="entry.Value.System" /></td>
+                                        <td>
+                                            <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveIdentifierTypeMapEntry(entry.Key)">
+                                                <i class="oi oi-x"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (!_identifierTypeMapEntries.Any()) @* Check mutable list *@
+                                {
+                                    <tr><td colspan="5" class="text-center text-muted">No identifier type mappings.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+
+                         <div class="mb-3">
+                            <label class="form-label">Defaults (JSON Object):</label>
+                            <InputTextArea @bind-Value="DefaultJsonInput" class="form-control" rows="5" placeholder="{ &quot;use&quot;: &quot;official&quot;, &quot;system&quot;: &quot;http://hospital.smarthealth.org/patient-ids&quot; }"></InputTextArea>
+                            <small class="form-text text-muted">Enter a valid JSON object for default values. e.g. `{ "use": "official" }`</small>
+                            @if (!string.IsNullOrEmpty(DefaultJsonError))
+                            {
+                                <div class="text-danger small">Error: @DefaultJsonError</div>
+                            }
+                        </div>
+                    }
+
+                    @if (_mappingToConfigure.Template == "Reference")
+                    {
+                        <div class="dynamic-section-header">
+                            <span>Reference Source</span>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Source Type:</label>
+                            <InputSelect @bind-Value="_mappingToConfigure.Source" class="form-select">
+                                <option value="">-- Select Source Type --</option>
+                                <option value="environment">Environment Variable</option>
+                                <option value="lookup">Lookup Table (not implemented)</option> @* Future expansion *@
+                                <option value="emr">EMR Field (already covered by EmrField)</option>
+                            </InputSelect>
+                            <small class="form-text text-muted">How the reference value is determined.</small>
+                        </div>
+                        @if (_mappingToConfigure.Source == "environment")
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Environment Variable Name:</label>
+                                <InputText @bind-Value="_mappingToConfigure.EmrField" class="form-control" placeholder="e.g., FHIR_ORGANIZATION_ID" />
+                                <small class="form-text text-muted">The name of the environment variable containing the reference ID.</small>
+                            </div>
+                        }
+                    }
+
+                    <div class="d-flex justify-content-end mt-4">
+                        <button type="submit" class="btn btn-primary me-2">Save Mapping</button>
+                        <button type="button" class="btn btn-secondary" @onclick="Cancel">Cancel</button>
+                    </div>
+                </EditForm>
+            }
+            else
+            {
+                <p>No mapping data to configure.</p>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private bool _isVisible;
+    private TaskCompletionSource<bool> _tcs;
+    private FieldMappingConfigurationModel _mappingToConfigure;
+    private Alert alertComponent;
+
+    // For parsing/serializing the 'Defaults' JSON object
+    private string DefaultJsonInput { get; set; }
+    private string DefaultJsonError { get; set; }
+
+    // --- Mutable lists for dictionary binding ---
+    private List<MutableDictionaryEntry<string, string>> _emrFieldMapEntries;
+    private List<MutableDictionaryEntry<string, string>> _displayMapEntries;
+    private List<MutableDictionaryEntry<string, string>> _emrFieldPriorityEntries;
+    private List<MutableIdentifierTypeMapEntry> _identifierTypeMapEntries;
+
+
+    [Parameter]
+    public EventCallback<FieldMappingConfigurationModel> OnMappingSaved { get; set; }
+
+    [Parameter]
+    public EventCallback OnMappingCancelled { get; set; }
+
+    /// <summary>
+    /// Displays the modal with the given mapping configuration.
+    /// </summary>
+    /// <param name="mapping">The mapping configuration to edit.</param>
+    /// <returns>True if saved, false if cancelled.</returns>
+    public Task<bool> Show(FieldMappingConfigurationModel mapping)
+    {
+        _mappingToConfigure = mapping;
+        _isVisible = true;
+
+        // Initialize mutable lists from dictionaries
+        _emrFieldMapEntries = mapping.EmrFieldMap?.Select(kvp => new MutableDictionaryEntry<string, string>(kvp.Key, kvp.Value)).ToList() ?? new List<MutableDictionaryEntry<string, string>>();
+        _displayMapEntries = mapping.ValueSet?.DisplayMap?.Select(kvp => new MutableDictionaryEntry<string, string>(kvp.Key, kvp.Value)).ToList() ?? new List<MutableDictionaryEntry<string, string>>();
+        _emrFieldPriorityEntries = mapping.EmrFieldPriority?.Select(kvp => new MutableDictionaryEntry<string, string>(kvp.Key, kvp.Value)).ToList() ?? new List<MutableDictionaryEntry<string, string>>();
+        _identifierTypeMapEntries = mapping.IdentifierTypeMap?.Select(kvp => new MutableIdentifierTypeMapEntry(kvp.Key, kvp.Value)).ToList() ?? new List<MutableIdentifierTypeMapEntry>();
+
+
+        DefaultJsonInput = _mappingToConfigure.Defaults != null ?
+                           System.Text.Json.JsonSerializer.Serialize(_mappingToConfigure.Defaults, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) : "{}";
+        DefaultJsonError = null; // Clear previous errors
+        StateHasChanged(); // Force re-render to show modal
+
+        _tcs = new TaskCompletionSource<bool>();
+        return _tcs.Task;
+    }
+
+    private void HandleOverlayClick()
+    {
+        // Prevent closing by clicking overlay. User must explicitly use buttons.
+        // If you want to close on overlay click: Cancel();
+    }
+
+    private void Cancel()
+    {
+        _isVisible = false;
+        _tcs?.SetResult(false);
+        OnMappingCancelled.InvokeAsync();
+        StateHasChanged();
+    }
+
+    private async Task Save()
+    {
+        DefaultJsonError = null; // Clear error before re-validation
+
+        // --- Convert mutable lists back to dictionaries ---
+        // Basic validation for duplicate keys or empty keys.
+        // EmrFieldMap
+        if (_emrFieldMapEntries.Any())
+        {
+            try
+            {
+                _mappingToConfigure.EmrFieldMap = _emrFieldMapEntries.ToDictionary(e => e.Key, e => e.Value);
+            }
+            catch (ArgumentException)
+            {
+                alertComponent?.Show("EMR Field Map: Duplicate keys detected. Please ensure all keys are unique.", "danger");
+                return;
+            }
+            if (_emrFieldMapEntries.Any(e => string.IsNullOrWhiteSpace(e.Key) || string.IsNullOrWhiteSpace(e.Value)))
+            {
+                 alertComponent?.Show("EMR Field Map: Keys and Values cannot be empty.", "danger");
+                 return;
+            }
+        }
+        else
+        {
+            _mappingToConfigure.EmrFieldMap = new Dictionary<string, string>();
+        }
+
+        // DisplayMap
+        if (_displayMapEntries.Any())
+        {
+            try
+            {
+                _mappingToConfigure.ValueSet ??= new ValueSetMap();
+                _mappingToConfigure.ValueSet.DisplayMap = _displayMapEntries.ToDictionary(e => e.Key, e => e.Value);
+            }
+            catch (ArgumentException)
+            {
+                alertComponent?.Show("Display Map: Duplicate keys detected. Please ensure all EMR Values are unique.", "danger");
+                return;
+            }
+            if (_displayMapEntries.Any(e => string.IsNullOrWhiteSpace(e.Key) || string.IsNullOrWhiteSpace(e.Value)))
+            {
+                 alertComponent?.Show("Display Map: EMR Values and FHIR Displays cannot be empty.", "danger");
+                 return;
+            }
+        }
+        else
+        {
+            _mappingToConfigure.ValueSet ??= new ValueSetMap(); // Still ensure ValueSet is initialized
+            _mappingToConfigure.ValueSet.DisplayMap = new Dictionary<string, string>();
+        }
+
+        // EmrFieldPriority
+        if (_emrFieldPriorityEntries.Any())
+        {
+            try
+            {
+                _mappingToConfigure.EmrFieldPriority = _emrFieldPriorityEntries.ToDictionary(e => e.Key, e => e.Value);
+            }
+            catch (ArgumentException)
+            {
+                alertComponent?.Show("EMR Field Priority: Duplicate keys detected. Please ensure all keys are unique.", "danger");
+                return;
+            }
+            if (_emrFieldPriorityEntries.Any(e => string.IsNullOrWhiteSpace(e.Key) || string.IsNullOrWhiteSpace(e.Value)))
+            {
+                 alertComponent?.Show("EMR Field Priority: Keys and EMR Column Names cannot be empty.", "danger");
+                 return;
+            }
+        }
+        else
+        {
+            _mappingToConfigure.EmrFieldPriority = new Dictionary<string, string>();
+        }
+
+        // IdentifierTypeMap
+        if (_identifierTypeMapEntries.Any())
+        {
+            try
+            {
+                _mappingToConfigure.IdentifierTypeMap = _identifierTypeMapEntries.ToDictionary(e => e.Key, e => e.Value);
+            }
+            catch (ArgumentException)
+            {
+                alertComponent?.Show("Identifier Type Map: Duplicate EMR Keys detected. Please ensure all keys are unique.", "danger");
+                return;
+            }
+             if (_identifierTypeMapEntries.Any(e => string.IsNullOrWhiteSpace(e.Key) || string.IsNullOrWhiteSpace(e.Value.Code) || string.IsNullOrWhiteSpace(e.Value.Display) || string.IsNullOrWhiteSpace(e.Value.System)))
+            {
+                 alertComponent?.Show("Identifier Type Map: EMR Key, Code, Display, and System cannot be empty.", "danger");
+                 return;
+            }
+        }
+        else
+        {
+            _mappingToConfigure.IdentifierTypeMap = new Dictionary<string, IdentifierTypeMapEntry>();
+        }
+        // --- End of dictionary conversion ---
+
+
+        // Manual validation for EmrField or complex maps
+        if (string.IsNullOrWhiteSpace(_mappingToConfigure.EmrField) &&
+            !_mappingToConfigure.EmrFieldMap.Any() &&
+            !_mappingToConfigure.EmrFieldPriority.Any() &&
+            string.IsNullOrEmpty(_mappingToConfigure.Source))
+        {
+            alertComponent?.Show("Please define a Primary EMR Field, a complex map, or a reference source.", "danger");
+            return;
+        }
+
+        // Try to parse defaults JSON
+        if (!string.IsNullOrWhiteSpace(DefaultJsonInput) && DefaultJsonInput.Trim() != "{}")
+        {
+            try
+            {
+                // Deserialize into a Dictionary<string, object>
+                var parsedDefaults = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(DefaultJsonInput);
+                _mappingToConfigure.Defaults = parsedDefaults;
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                DefaultJsonError = "Invalid JSON for Defaults: " + ex.Message;
+                return; // Stop save process
+            }
+            catch (Exception ex) // Catch other potential issues during deserialization
+            {
+                DefaultJsonError = "Error processing Defaults JSON: " + ex.Message;
+                return;
+            }
+        }
+        else
+        {
+            _mappingToConfigure.Defaults = new Dictionary<string, object>(); // Ensure it's empty if input is empty or just "{}"
+        }
+
+
+        _isVisible = false;
+        _tcs?.SetResult(true);
+        await OnMappingSaved.InvokeAsync(_mappingToConfigure); // Pass the configured mapping back
+        StateHasChanged();
+    }
+
+    // --- Dictionary/List Management Helpers ---
+
+    private void AddEmrFieldMapEntry()
+    {
+        string newKey = "newSubField" + (_emrFieldMapEntries.Count + 1);
+        while (_emrFieldMapEntries.Any(e => e.Key == newKey))
+        {
+            newKey += "_";
+        }
+        _emrFieldMapEntries.Add(new MutableDictionaryEntry<string, string>(newKey, string.Empty));
+    }
+
+    private void RemoveEmrFieldMapEntry(string key)
+    {
+        _emrFieldMapEntries.RemoveAll(e => e.Key == key);
+    }
+
+    private void AddDisplayMapEntry()
+    {
+        string newKey = "EMR_Value" + (_displayMapEntries.Count + 1);
+        while (_displayMapEntries.Any(e => e.Key == newKey))
+        {
+            newKey += "_";
+        }
+        _displayMapEntries.Add(new MutableDictionaryEntry<string, string>(newKey, string.Empty));
+    }
+
+    private void RemoveDisplayMapEntry(string key)
+    {
+        _displayMapEntries.RemoveAll(e => e.Key == key);
+    }
+
+    private void AddEmrFieldPriorityEntry()
+    {
+        string newKey = "newKey" + (_emrFieldPriorityEntries.Count + 1);
+        while (_emrFieldPriorityEntries.Any(e => e.Key == newKey))
+        {
+            newKey += "_";
+        }
+        _emrFieldPriorityEntries.Add(new MutableDictionaryEntry<string, string>(newKey, string.Empty));
+    }
+
+    private void RemoveEmrFieldPriorityEntry(string key)
+    {
+        _emrFieldPriorityEntries.RemoveAll(e => e.Key == key);
+    }
+
+    private void AddIdentifierTypeMapEntry()
+    {
+        string newKey = "emrKey" + (_identifierTypeMapEntries.Count + 1);
+        while (_identifierTypeMapEntries.Any(e => e.Key == newKey))
+        {
+            newKey += "_";
+        }
+        _identifierTypeMapEntries.Add(new MutableIdentifierTypeMapEntry(newKey, new IdentifierTypeMapEntry()));
+    }
+
+    private void RemoveIdentifierTypeMapEntry(string key)
+    {
+        _identifierTypeMapEntries.RemoveAll(e => e.Key == key);
+    }
+}

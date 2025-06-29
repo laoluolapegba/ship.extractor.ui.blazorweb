@@ -9,10 +9,14 @@
 
     public class FhirFieldModel
     {
-        public string Path { get; set; }
-        public string DisplayName { get; set; }
-        public string DataType { get; set; }
+        public string Path { get; set; } // e.g., "Patient.name[0].given"
+        public string DisplayName { get; set; } // e.g., "given"
+        public string DataType { get; set; } // e.g., "String", "Object", "Array", "Quantity"
         public bool IsRequired { get; set; }
         public List<FhirFieldModel> Children { get; set; } = new List<FhirFieldModel>();
+
+        // Optional: Could add a property for FHIR template names if applicable,
+        // e.g., for "name", "address", "telecom"
+        public string TemplateName { get; set; }
     }
 }

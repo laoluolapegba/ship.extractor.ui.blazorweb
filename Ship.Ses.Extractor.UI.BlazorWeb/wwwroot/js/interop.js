@@ -83,4 +83,21 @@ window.mappingDesigner = {
             }, 2000);
         }
     }
+    window.BlazorDownloadFile = function (filename, content, contentType) {
+        const blob = new Blob([content], { type: contentType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    // Keep your existing stopEventPropagation if it's still defined
+     window.stopEventPropagation = function (event) {
+         event.stopPropagation();
+         return true;
+     };
 };

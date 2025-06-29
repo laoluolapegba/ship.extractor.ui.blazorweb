@@ -18,5 +18,7 @@
         // FHIR-specific properties
         public string Path { get; set; }
         public bool IsRequired { get; set; }
+        public string TemplateName { get; set; } // For FHIR nodes, indicates FHIR template like "HumanName", "Address", etc.
+
     }
 }

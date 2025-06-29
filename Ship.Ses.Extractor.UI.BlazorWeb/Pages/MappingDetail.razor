@@ -1,6 +1,10 @@
 ﻿@page "/mappings/create"
 @page "/mappings/edit/{Id:guid}"
 @using System.Text.Json
+@using Ship.Ses.Extractor.UI.BlazorWeb.Models.ApiClient
+@using Ship.Ses.Extractor.UI.BlazorWeb.Models.UI
+@using Ship.Ses.Extractor.UI.BlazorWeb.Components.Common 
+@using Ship.Ses.Extractor.UI.BlazorWeb.Components.MappingDesigner 
 @inject FhirResourceService FhirResourceService
 @inject MappingService MappingService
 @inject NavigationManager NavigationManager
@@ -50,9 +54,9 @@
         @if (_mapping.FhirResourceTypeId > 0)
         {
             <MappingDesigner ResourceTypeId="_mapping.FhirResourceTypeId"
-                             ResourceTypeName="_mapping.FhirResourceTypeName"
-                             ExistingMappings="_mapping.Mappings"
-                             OnMappingsChanged="UpdateMappings" />
+                             ResourceTypeName="@_mapping.FhirResourceTypeName"
+                             ExistingMappings="_designerMappings"
+                             OnMappingsChanged="HandleMappingsChangedFromDesigner" />
         }
         else
         {
@@ -72,23 +76,26 @@
     private bool _loading = true;
     private bool _isEditing => Id.HasValue;
 
-    private void OnResourceTypeChanged(ChangeEventArgs e)
-    {
-        if (int.TryParse(e.Value?.ToString(), out int selectedId))
-        {
-            _mapping.FhirResourceTypeId = selectedId;
-            ResourceTypeChanged(e); // Call your original method
-        }
-    }
+    // Use a temporary list to hold mappings from the designer,
+    // which will then be assigned to _mapping.Mappings before saving.
+    private List<FieldMappingConfigurationModel> _designerMappings = new();
+
+
     protected override async Task OnInitializedAsync()
     {
         try
         {
             _resourceTypes = await FhirResourceService.GetResourceTypesAsync();
-            
+
             if (_isEditing)
             {
-                _mapping = await MappingService.GetMappingAsync(Id.Value);
+                var loadedMapping = await MappingService.GetMappingAsync(Id.Value);
+                _mapping = loadedMapping;
+                // Important: Convert _mapping.Mappings (which is List<ColumnMappingModel>)
+                // to List<FieldMappingConfigurationModel> for the designer.
+                // Assuming MappingModel.Mappings is already List<FieldMappingConfigurationModel>
+                // based on our previous discussion and changes.
+                _designerMappings = loadedMapping.Mappings ?? new List<FieldMappingConfigurationModel>();
             }
             else
             {
@@ -96,14 +103,16 @@
                 {
                     Id = Guid.NewGuid(),
                     CreatedDate = DateTime.UtcNow,
-                    LastModifiedDate = DateTime.UtcNow
+                    LastModifiedDate = DateTime.UtcNow,
+                    Mappings = new List<FieldMappingConfigurationModel>() // Initialize empty list
                 };
+                _designerMappings = _mapping.Mappings; // Point to the same list for new mappings
             }
         }
         catch (Exception ex)
         {
-            // Handle error
             Console.Error.WriteLine($"Error loading data: {ex.Message}");
+            // Add alert here
         }
         finally
         {
@@ -111,22 +120,33 @@
         }
     }
 
-    private void UpdateMappings(List<ColumnMappingModel> mappings)
+    private void OnResourceTypeChanged(ChangeEventArgs e)
     {
-        _mapping.Mappings = mappings;
-    }
-
-    private async Task ResourceTypeChanged(ChangeEventArgs e)
-    {
-        if (int.TryParse(e.Value.ToString(), out int resourceTypeId) && resourceTypeId > 0)
+        if (int.TryParse(e.Value?.ToString(), out int selectedId))
         {
-            var resourceType = _resourceTypes.FirstOrDefault(rt => rt.Id == resourceTypeId);
+            _mapping.FhirResourceTypeId = selectedId;
+            var resourceType = _resourceTypes.FirstOrDefault(rt => rt.Id == selectedId);
             if (resourceType != null)
             {
-                _mapping.FhirResourceTypeId = resourceTypeId;
                 _mapping.FhirResourceTypeName = resourceType.Name;
             }
+            // Clear current mappings if resource type changes significantly
+            _designerMappings = new List<FieldMappingConfigurationModel>();
+            _mapping.Mappings = _designerMappings; // Update _mapping's reference
         }
+        else
+        {
+            _mapping.FhirResourceTypeId = 0;
+            _mapping.FhirResourceTypeName = null;
+            _designerMappings = new List<FieldMappingConfigurationModel>();
+            _mapping.Mappings = _designerMappings; // Update _mapping's reference
+        }
+    }
+
+    // New handler for mappings coming from MappingDesigner
+    private void HandleMappingsChangedFromDesigner(List<FieldMappingConfigurationModel> updatedMappings)
+    {
+        _designerMappings = updatedMappings; // Update the list held by this page
     }
 
     private async Task SaveMapping()
@@ -135,17 +155,24 @@
         {
             if (string.IsNullOrWhiteSpace(_mapping.Name))
             {
-                // Show validation error
+                Console.Error.WriteLine("Mapping name is required.");
+                // alertComponent?.Show("Mapping name is required.", "danger");
                 return;
             }
 
             if (_mapping.FhirResourceTypeId <= 0)
             {
-                // Show validation error
+                Console.Error.WriteLine("FHIR Resource Type is required.");
+                // alertComponent?.Show("FHIR Resource Type is required.", "danger");
                 return;
             }
 
+            // Assign the mappings from the designer to the main mapping model
+            _mapping.Mappings = _designerMappings;
             _mapping.LastModifiedDate = DateTime.UtcNow;
+
+            // This assumes MappingModel.Mappings is List<FieldMappingConfigurationModel>
+            // or that your MappingService/API DTOs handle the conversion.
 
             if (_isEditing)
             {
@@ -161,8 +188,8 @@
         }
         catch (Exception ex)
         {
-            // Handle error
             Console.Error.WriteLine($"Error saving mapping: {ex.Message}");
+            // alertComponent?.Show($"Error saving mapping: {ex.Message}", "danger");
         }
     }
 

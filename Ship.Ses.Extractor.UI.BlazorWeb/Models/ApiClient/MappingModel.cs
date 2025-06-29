@@ -1,4 +1,6 @@
-﻿namespace Ship.Ses.Extractor.UI.BlazorWeb.Models.ApiClient
+﻿using Ship.Ses.Extractor.UI.BlazorWeb.Models.UI;
+
+namespace Ship.Ses.Extractor.UI.BlazorWeb.Models.ApiClient
 {
     public class MappingModel
     {
@@ -9,7 +11,7 @@
         public string FhirResourceTypeName { get; set; }
         public DateTime CreatedDate { get; set; }
         public DateTime LastModifiedDate { get; set; }
-        public List<ColumnMappingModel> Mappings { get; set; } = new List<ColumnMappingModel>();
+        public List<FieldMappingConfigurationModel> Mappings { get; set; } = new List<FieldMappingConfigurationModel>();
     }
 
     public class ColumnMappingModel

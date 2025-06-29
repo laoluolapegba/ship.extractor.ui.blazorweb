@@ -1,4 +1,7 @@
 ﻿@inject EmrDatabaseService EmrDatabaseService
+@using Ship.Ses.Extractor.UI.BlazorWeb.Models.ApiClient
+@using Ship.Ses.Extractor.UI.BlazorWeb.Models.UI
+@using Ship.Ses.Extractor.UI.BlazorWeb.Components.Common 
 
 <div class="emr-table-container">
     @if (_tableLoading)
@@ -44,9 +47,9 @@
                             @foreach (var column in table.Columns)
                             {
                                 <div class="emr-tree-item column-item
-                                      @(IsColumnSelected(table.Name, column.Name) ? "selected" : "")"
-                                     @onclick:stopPropagation="true"
-                                     @onclick="() => SelectColumn(table, column)">
+                                         @(IsColumnSelected(table.Name, column.Name) ? "selected" : "")"
+                                         @onclick:stopPropagation="true"
+                                         @onclick="() => SelectColumn(table, column)">
                                     <div class="emr-tree-item-header">
                                         <span class="item-icon">
                                             @if (column.IsPrimaryKey)
@@ -68,19 +71,21 @@
                 </div>
             }
         </div>
-    }
+     }
 </div>
 
 @code {
+    // Keep your existing parameters for now, MappingDesigner will use them
     [Parameter]
     public EventCallback<MappingNode> OnTableSelected { get; set; }
 
+
     [Parameter]
-    public EventCallback<MappingNode> OnColumnSelected { get; set; }
+    public EventCallback<MappingNode> OnColumnSelected {get; set;}
 
     private List<EmrTableModel> _tables = new();
-    private EmrTableModel _selectedTable;
-    private string _selectedColumnName;
+    private EmrTableModel _selectedTable; // This refers to the visually selected table in the list itself
+    private string _selectedColumnName; // This refers to the visually selected column in the list itself
     private bool _tableLoading = true;
     private string _tableSearchText = "";
     private HashSet<string> _expandedTables = new();
@@ -95,12 +100,18 @@
         _tableLoading = true;
         try
         {
+            // This call should now return tables with populated columns
             _tables = await EmrDatabaseService.GetEmrTablesAsync();
+        }
+        catch (HttpRequestException httpEx)
+        {
+            Console.Error.WriteLine($"Error loading EMR tables: {httpEx.Message}. Check API and EMR connection.");
+            _tables = new List<EmrTableModel>(); // Ensure not null
         }
         catch (Exception ex)
         {
-            // Handle error
-            Console.Error.WriteLine($"Error loading EMR tables: {ex.Message}");
+            Console.Error.WriteLine($"An unexpected error occurred loading EMR tables: {ex.Message}");
+            _tables = new List<EmrTableModel>(); // Ensure not null
         }
         finally
         {
@@ -111,28 +122,35 @@
     private List<EmrTableModel> _filteredTables => string.IsNullOrWhiteSpace(_tableSearchText)
         ? _tables
         : _tables.Where(t => t.Name.Contains(_tableSearchText, StringComparison.OrdinalIgnoreCase) ||
-                          t.Columns.Any(c => c.Name.Contains(_tableSearchText, StringComparison.OrdinalIgnoreCase)))
-                 .ToList();
+                            t.Columns.Any(c => c.Name.Contains(_tableSearchText, StringComparison.OrdinalIgnoreCase)))
+                     .ToList();
 
     private async Task SelectTable(EmrTableModel table)
     {
+        // If selecting an already selected table, de-select it
+        if (_selectedTable == table && _selectedColumnName == null)
+        {
+            _selectedTable = null;
+            await OnTableSelected.InvokeAsync(null); // Notify parent of deselection
+            return;
+        }
+
         _selectedTable = table;
         _selectedColumnName = null;
 
-        // Toggle expansion
+        // Toggle expansion (still useful for UI)
         ToggleTableExpand(table.Name);
 
-        // Notify parent
+        // Notify parent about the selected EMR table
         var node = new MappingNode
-            {
-                Id = $"emr-table-{table.Name}",
-                Label = table.Name,
-                Type = "EMR",
-                TableName = table.Name,
-                IsSelected = true,
-                IsExpanded = _expandedTables.Contains(table.Name)
-            };
-
+        {
+            Id = $"emr-table-{table.Name}",
+            Label = table.Name,
+            Type = "EMR",
+            TableName = table.Name,
+            IsSelected = true,
+            IsExpanded = _expandedTables.Contains(table.Name) // This property is not used for selection logic, but for internal UI state
+        };
         await OnTableSelected.InvokeAsync(node);
     }
 
@@ -140,7 +158,8 @@
     {
         if (_expandedTables.Contains(tableName))
         {
-            _expandedTables.Remove(tableName);
+            _expandedTables.Remove(tableName); // Using _expandedPaths from FhirFieldTree, this should be _expandedTables
+            _expandedTables.Remove(tableName); // Corrected
         }
         else
         {
@@ -148,24 +167,33 @@
         }
     }
 
+
     private async Task SelectColumn(EmrTableModel table, EmrColumnModel column)
     {
+        // If selecting an already selected column, de-select it
+        if (_selectedTable == table && _selectedColumnName == column.Name)
+        {
+            _selectedTable = null;
+            _selectedColumnName = null;
+            await OnColumnSelected.InvokeAsync(null); // Notify parent of deselection
+            return;
+        }
+
         _selectedTable = table;
         _selectedColumnName = column.Name;
 
-        // Notify parent
+        // Notify parent about the selected EMR column
         var node = new MappingNode
-            {
-                Id = $"emr-column-{table.Name}-{column.Name}",
-                Label = column.Name,
-                Type = "EMR",
-                TableName = table.Name,
-                ColumnName = column.Name,
-                DataType = column.DataType,
-                IsPrimaryKey = column.IsPrimaryKey,
-                IsSelected = true
-            };
-
+        {
+            Id = $"emr-column-{table.Name}-{column.Name}",
+            Label = $"{table.Name}.{column.Name}", // More explicit label
+            Type = "EMR",
+            TableName = table.Name,
+            ColumnName = column.Name,
+            DataType = column.DataType,
+            IsPrimaryKey = column.IsPrimaryKey,
+            IsSelected = true
+        };
         await OnColumnSelected.InvokeAsync(node);
     }
 

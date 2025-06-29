@@ -1,6 +1,9 @@
 ﻿@inject FhirResourceService FhirResourceService
 @inject IJSRuntime JSRuntime
 @using System.Text.Json
+@using Ship.Ses.Extractor.UI.BlazorWeb.Models.ApiClient 
+@using Ship.Ses.Extractor.UI.BlazorWeb.Models.UI
+
 <div class="fhir-field-container">
     @if (_fhirLoading)
     {
@@ -37,31 +40,48 @@
     public EventCallback<MappingNode> OnFieldSelected { get; set; }
 
     private List<FhirFieldModel> _fields = new();
-    private string _selectedFieldPath;
+    private string _selectedFieldPath; // Visual selection in this component
     private bool _fhirLoading = true;
     private string _fhirSearchText = "";
     private HashSet<string> _expandedPaths = new();
 
     protected override async Task OnParametersSetAsync()
     {
-        if (ResourceTypeId > 0)
+        // Only reload fields if ResourceTypeId has changed and is valid
+        if (ResourceTypeId > 0 && (_fields == null || !_fields.Any() || ResourceTypeId != _currentLoadedResourceTypeId))
         {
             await LoadFieldsAsync();
+            _currentLoadedResourceTypeId = ResourceTypeId;
+        }
+        // If ResourceTypeId is reset or invalid, clear fields
+        else if (ResourceTypeId <= 0 && (_fields != null && _fields.Any()))
+        {
+            _fields.Clear();
+            _fhirLoading = false;
+            _selectedFieldPath = null;
+            _expandedPaths.Clear();
+            _currentLoadedResourceTypeId = 0;
         }
     }
+
+    private int _currentLoadedResourceTypeId; // Keep track of the last loaded ID
 
     private async Task LoadFieldsAsync()
     {
         _fhirLoading = true;
+        _fields.Clear(); // Clear existing fields before loading
+        _selectedFieldPath = null; // Clear selection
+        _expandedPaths.Clear(); // Collapse all
+
         try
         {
-            // Now expecting a JsonDocument
             var jsonDocument = await FhirResourceService.GetResourceStructureAsync(ResourceTypeId);
-            _fields = ParseFhirStructure(jsonDocument); // Pass JsonDocument directly
+            _fields = ParseFhirStructure(jsonDocument);
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Error loading FHIR fields: {ex.Message}");
+            // Consider adding a UI alert here, passed as a parameter
         }
         finally
         {
@@ -89,13 +109,15 @@
                 var filteredChildren = FilterFieldsBySearchText(field.Children, searchText);
                 if (filteredChildren.Any())
                 {
+                    // Clone the parent and add filtered children
                     var clone = new FhirFieldModel
                         {
                             Path = field.Path,
                             DisplayName = field.DisplayName,
                             DataType = field.DataType,
                             IsRequired = field.IsRequired,
-                            Children = filteredChildren
+                            Children = filteredChildren,
+                            TemplateName = field.TemplateName // Preserve TemplateName
                         };
                     result.Add(clone);
                 }
@@ -114,33 +136,31 @@
 
             builder.OpenElement(2, "div");
             builder.AddAttribute(3, "class", "fhir-tree-item-header");
+            // The main header click selects the field
             builder.AddAttribute(4, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => SelectField(field)));
-            // builder.AddAttribute(7, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, (e) => ToggleFieldExpand(field.Path)));
-            // builder.AddAttribute(8, "onclick:stopPropagation", "true");
 
+            // Toggle icon for expansion
             if (field.Children.Any())
             {
                 builder.OpenElement(5, "span");
                 builder.AddAttribute(6, "class", $"toggle-icon {(_expandedPaths.Contains(field.Path) ? "expanded" : "")}");
-                builder.AddAttribute(7, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, async (e) =>
-                {
-                await JSRuntime.InvokeVoidAsync("stopEventPropagation", e);
-                ToggleFieldExpand(field.Path);
-                }));
-                // builder.AddAttribute(7, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, (e) =>
-                // {
-                //     e.StopPropagation();
-                //     ToggleFieldExpand(field.Path);
-                // }));
+                // Add the Blazor stopPropagation directive here directly:
+                builder.AddAttribute(7, "onclick:stopPropagation", "true"); // <-- This is the key change!
 
+                builder.AddAttribute(8, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, (e) =>
+                {
+                    // REMOVE THE JSRuntime call here. It's no longer needed.
+                    // await JSRuntime.InvokeVoidAsync("stopEventPropagation", e); // Delete this line
+                    ToggleFieldExpand(field.Path);
+                }));
                 builder.OpenElement(8, "span");
                 builder.AddAttribute(9, "class", $"oi {(_expandedPaths.Contains(field.Path) ? "oi-caret-bottom" : "oi-caret-right")}");
                 builder.CloseElement();
-
                 builder.CloseElement();
             }
             else
             {
+                // Placeholder for alignment if no children
                 builder.OpenElement(5, "span");
                 builder.AddAttribute(6, "class", "toggle-icon placeholder");
                 builder.CloseElement();
@@ -148,7 +168,6 @@
 
             builder.OpenElement(10, "span");
             builder.AddAttribute(11, "class", "item-icon");
-
             if (field.IsRequired)
             {
                 builder.OpenElement(12, "span");
@@ -162,7 +181,6 @@
                 builder.AddAttribute(13, "class", "oi oi-list");
                 builder.CloseElement();
             }
-
             builder.CloseElement();
 
             builder.OpenElement(15, "span");
@@ -181,9 +199,7 @@
             {
                 builder.OpenElement(21, "div");
                 builder.AddAttribute(22, "class", "fhir-tree-item-children");
-
                 builder.AddContent(23, RenderFhirFields(field.Children, field.Path));
-
                 builder.CloseElement();
             }
 
@@ -193,15 +209,51 @@
 
     private async Task SelectField(FhirFieldModel field)
     {
+        // If selecting an already selected field, de-select it
+        if (_selectedFieldPath == field.Path)
+        {
+            _selectedFieldPath = null;
+            await OnFieldSelected.InvokeAsync(null); // Notify parent of deselection
+            return;
+        }
+
         _selectedFieldPath = field.Path;
 
+        // For "object" or "array" types, allow expansion without immediate selection for mapping
         if (field.Children.Any())
         {
             ToggleFieldExpand(field.Path);
+            // Don't invoke OnFieldSelected for parent nodes directly, only leaf nodes.
+            // However, if a user *explicitly clicks* a parent, they might want to map to it
+            // as a complex type. This needs careful UX consideration.
+            // For now, let's assume direct selection is for leaf nodes or complex objects meant as templates.
+
+            // If the parent itself is a valid mapping target (e.g., Patient.name is a HumanName template)
+            // then you can still fire OnFieldSelected.
+            // For now, only fire for leaf nodes OR complex objects identified as templates
+            // This is where 'TemplateName' property on FhirFieldModel would be useful
+            if (!string.IsNullOrEmpty(field.TemplateName) || !field.Children.Any()) // Map only if it's a leaf or has a known template
+            {
+                var node = new MappingNode
+                    {
+                        Id = $"fhir-field-{field.Path.Replace('.', '-')}",
+                        Label = field.DisplayName,
+                        Type = "FHIR",
+                        Path = field.Path,
+                        DataType = field.DataType,
+                        IsRequired = field.IsRequired,
+                        IsSelected = true
+                    };
+                await OnFieldSelected.InvokeAsync(node);
+            }
+            else // It's an object/array without a template defined, just expand
+            {
+                // Do nothing, just expand
+            }
         }
-        else
+        else // It's a leaf node (no children)
         {
-            // Notify parent only for leaf nodes
+            // Notify parent for leaf nodes
             var node = new MappingNode
                 {
                     Id = $"fhir-field-{field.Path.Replace('.', '-')}",
@@ -212,7 +264,6 @@
                     IsRequired = field.IsRequired,
                     IsSelected = true
                 };
-
             await OnFieldSelected.InvokeAsync(node);
         }
     }
@@ -235,7 +286,6 @@
         try
         {
             var fields = new List<FhirFieldModel>();
-            // var jsonDoc = System.Text.Json.JsonDocument.Parse(structure); // No longer needed
             var root = jsonDoc.RootElement;
 
             foreach (var property in root.EnumerateObject())
@@ -263,8 +313,11 @@
             {
                 Path = path,
                 DisplayName = property.Name,
-                IsRequired = false  // Default, would need resource-specific logic to determine
+                IsRequired = false // Default, would need resource-specific logic to determine
             };
+
+        // Attempt to infer TemplateName based on common FHIR types or your custom logic
+        field.TemplateName = InferFhirTemplate(property.Name, property.Value.ValueKind);
 
         switch (property.Value.ValueKind)
         {
@@ -278,8 +331,33 @@
 
             case JsonValueKind.Array:
                 field.DataType = "Array";
-                // For arrays, we would typically look at the first item to determine structure
-                // This is simplified for this example
+                // For arrays, if the first element is an object, we want to represent its structure.
+                if (property.Value.GetArrayLength() > 0)
+                {
+                    var firstElement = property.Value.EnumerateArray().FirstOrDefault();
+                    if (firstElement.ValueKind == JsonValueKind.Object)
+                    {
+                        // --- THIS IS THE CRUCIAL CHANGE ---
+                        // Instead of creating a dummy JsonProperty, we directly enumerate the properties
+                        // of the 'firstElement' (which is a JsonElement representing an object)
+                        foreach (var childPropInArray in firstElement.EnumerateObject()) // Iterate properties of the object inside the array
+                        {
+                            // The path for children of an array item should include the array index, e.g., "name[0].given"
+                            // So, we pass the updated parentPath for the recursive call.
+                            field.Children.Add(ParseJsonProperty(childPropInArray, $"{path}[0]"));
+                        }
+                        // Update display type for arrays of objects
+                        field.DataType = $"Array<{field.DisplayName.TrimEnd('s')}>"; // e.g., "Array<Name>", "Array<Contact>"
+                        field.TemplateName = InferFhirTemplate(property.Name, JsonValueKind.Array); // E.g., for "name" array
+                    }
+                    else
+                    {
+                        // If array contains primitives (e.g., array of strings or numbers)
+                        // We can still try to infer type or just set a generic array type.
+                        // For now, let's keep it simple for primitive arrays.
+                        field.DataType = $"Array<{firstElement.ValueKind.ToString()}>";
+                    }
+                }
                 break;
 
             case JsonValueKind.String:
@@ -301,5 +379,24 @@
         }
 
         return field;
+    }
+
+    // Helper to infer FHIR template names based on property name and type
+    private string InferFhirTemplate(string propertyName, JsonValueKind valueKind)
+    {
+        // Common FHIR complex types that often appear as templates
+        return propertyName.ToLower() switch
+        {
+            "name" when valueKind == JsonValueKind.Array => "HumanName",
+            "telecom" when valueKind == JsonValueKind.Array => "ContactPoint",
+            "address" when valueKind == JsonValueKind.Array => "Address",
+            "identifier" when valueKind == JsonValueKind.Array => "Identifier",
+            "coding" when valueKind == JsonValueKind.Array => "Coding", // Often part of CodeableConcept
+            "code" when valueKind == JsonValueKind.Object => "CodeableConcept", // Assuming a CodeableConcept
+            "maritalstatus" => "CodeableConcept", // Specific case from your JSON
+            "contact" when valueKind == JsonValueKind.Array => "Contact", // Patient.contact
+            "managingorganization" => "Reference", // FHIR Reference type
+            _ => null
+        };
     }
 }
