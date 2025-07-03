@@ -1,0 +1,45 @@
+﻿# Ignore build outputs
+bin/
+obj/
+out/
+
+# Ignore Visual Studio files
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.docstates
+
+# Ignore NuGet packages
+packages/
+*.nupkg
+
+# Ignore logs
+*.log
+
+# Ignore temporary files
+*.tmp
+*.temp
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore Docker files themselves
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Ignore Git
+.git/
+.gitignore
+
+# Ignore IDE files
+*.swp
+*.swo
+*~
+
+# Ignore test results
+TestResults/
+*.trx
+*.coverage
